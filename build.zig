@@ -1,4 +1,5 @@
 const std = @import("std");
+const raySdk = @import("raylib/src/build.zig");
 
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
@@ -26,6 +27,10 @@ pub fn build(b: *std.Build) void {
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
     b.installArtifact(exe);
+
+    const raylib = raySdk.addRaylib(b, target, optimize, .{});
+    exe.addIncludePath(.{ .path = "raylib/src" });
+    exe.linkLibrary(raylib);
 
     // This *creates* a Run step in the build graph, to be executed when another
     // step is evaluated that depends on it. The next line below will establish

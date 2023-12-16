@@ -1,5 +1,10 @@
 const std = @import("std");
+const ray = @cImport(@cInclude("raylib.h"));
+
 const Allocator = std.mem.Allocator;
+
+const screen_width: u32 = 1440;
+const screen_height: u32 = 960;
 
 const Chip8 = struct {
     screen: [64 * 32]u8,
@@ -35,10 +40,14 @@ pub fn main() !void {
     const size = try file.reader().readAll(memory[0x200..]);
     _ = size;
 
+    ray.InitWindow(960, 540, "My Window Name");
+    ray.SetTargetFPS(144);
+    defer ray.CloseWindow();
+
     var pc: u16 = 200;
     var refresh = false;
     var dont_inc = false;
-    while (true) {
+    while (!ray.WindowShouldClose()) {
         refresh = false;
         dont_inc = false;
 
@@ -90,8 +99,9 @@ pub fn main() !void {
         }
 
         if (refresh) {
-            clearScreen();
-            draw(&screen);
+            ray.BeginDrawing();
+            ray.ClearBackground(ray.BLACK);
+            ray.EndDrawing();
         }
     }
 }
