@@ -6,12 +6,6 @@ const Allocator = std.mem.Allocator;
 const screen_width: u32 = 1024;
 const screen_height: u32 = 512;
 
-const Chip8 = struct {
-    screen: [64 * 32]u8,
-    pc: u16,
-    index_register: u16,
-};
-
 pub fn GetInput() u8 {
     if (ray.IsKeyReleased(ray.KEY_ONE)) {
         return 1;
@@ -71,6 +65,12 @@ pub fn ConvertKey(key: u8) c_int {
     }
 }
 
+const Chip8 = struct {
+    screen: [64 * 32]u8,
+    pc: u16,
+    index_register: u16,
+};
+
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = general_purpose_allocator.allocator();
@@ -86,7 +86,7 @@ pub fn main() !void {
     var v_reg = [_]u8{0} ** 16;
     var i_reg: u16 = 0;
     const file = try std.fs.cwd().openFile(
-        "E:/code/zig/chip8/tests/input.ch8",
+        "E:/code/zig/chip8/roms/octojam1title.ch8",
         .{},
     );
     defer file.close();
@@ -115,11 +115,14 @@ pub fn main() !void {
 
     var rnd = RndGen.init(0);
     var timer: f32 = 0.0;
+    var instruction_timer: f32 = 0.0;
     const period: f32 = 1.0 / 60.0; // 60hz
+    const instruction_rate: f32 = 1.0 / 700.0;
     while (!ray.WindowShouldClose()) {
         refresh = false;
 
         timer += ray.GetFrameTime();
+        instruction_timer += ray.GetFrameTime();
         if (timer >= period) {
             if (delay_timer > 0) {
                 delay_timer -= 1;
@@ -130,195 +133,197 @@ pub fn main() !void {
             timer = 0;
         }
 
-        if (wait_for_keypress) {
-            const input = GetInput();
-            if (input != 0) {
-                std.debug.print("{d}", .{input});
-                wait_for_keypress = false;
-                v_reg[keypress_reg] = input;
-            }
-        } else {
-            const instruction = std.mem.readInt(u16, memory[pc .. pc + 2][0..2], .big);
-            const id = (instruction & 0xF000) >> 12;
-            pc += 2;
+        if (instruction_timer >= instruction_rate) {
+            instruction_timer = 0.0;
+            if (wait_for_keypress) {
+                const input = GetInput();
+                if (input != 0) {
+                    wait_for_keypress = false;
+                    v_reg[keypress_reg] = input;
+                }
+            } else {
+                const instruction = std.mem.readInt(u16, memory[pc .. pc + 2][0..2], .big);
+                const id = (instruction & 0xF000) >> 12;
+                pc += 2;
 
-            switch (id) {
-                0 => {
-                    if (instruction == 0x00E0) {
-                        @memset(&screen, 0);
+                switch (id) {
+                    0 => {
+                        if (instruction == 0x00E0) {
+                            @memset(&screen, 0);
+                            refresh = true;
+                        } else if (instruction == 0x00EE) {
+                            pc = stack.pop();
+                        }
+                    },
+                    1 => {
+                        pc = instruction & 0x0FFF;
+                    },
+                    2 => {
+                        try stack.append(pc);
+                        pc = instruction & 0x0FFF;
+                    },
+                    3 => {
+                        if (v_reg[(instruction & 0x0F00) >> 8] == (instruction & 0x00FF)) {
+                            pc += 2;
+                        }
+                    },
+                    4 => {
+                        if (v_reg[(instruction & 0x0F00) >> 8] != (instruction & 0x00FF)) {
+                            pc += 2;
+                        }
+                    },
+                    5 => {
+                        if (v_reg[(instruction & 0x0F00) >> 8] == v_reg[(instruction & 0x00F0) >> 4]) {
+                            pc += 2;
+                        }
+                    },
+                    6 => {
+                        v_reg[(instruction & 0x0F00) >> 8] = @intCast(instruction & 0x00FF);
+                    },
+                    7 => {
+                        const result = v_reg[(instruction & 0x0F00) >> 8] + instruction & 0x00FF;
+                        v_reg[(instruction & 0x0F00) >> 8] = @intCast(result & 0xFF);
+                    },
+                    8 => {
+                        const op = instruction & 0x000F;
+                        switch (op) {
+                            0 => {
+                                v_reg[(instruction & 0x0F00) >> 8] = v_reg[(instruction & 0x00F0) >> 4];
+                            },
+                            1 => {
+                                v_reg[(instruction & 0x0F00) >> 8] |= v_reg[(instruction & 0x00F0) >> 4];
+                            },
+                            2 => {
+                                v_reg[(instruction & 0x0F00) >> 8] &= v_reg[(instruction & 0x00F0) >> 4];
+                            },
+                            3 => {
+                                v_reg[(instruction & 0x0F00) >> 8] ^= v_reg[(instruction & 0x00F0) >> 4];
+                            },
+                            4 => {
+                                const result: u16 = @as(u16, v_reg[(instruction & 0x0F00) >> 8]) + @as(u16, v_reg[(instruction & 0x00F0) >> 4]);
+                                v_reg[(instruction & 0x0F00) >> 8] = @intCast(result & 0xFF);
+                                v_reg[0xF] = if (result > 0xFF) 1 else 0;
+                            },
+                            5 => {
+                                const x: i16 = v_reg[(instruction & 0x0F00) >> 8];
+                                const y: i16 = v_reg[(instruction & 0x00F0) >> 4];
+                                const result: i16 = x - y;
+                                v_reg[(instruction & 0x0F00) >> 8] = @intCast(result & 0xFF);
+                                v_reg[0xF] = if (x >= y) 1 else 0;
+                            },
+                            6 => {
+                                const y: u8 = v_reg[(instruction & 0x00F0) >> 4];
+                                v_reg[(instruction & 0x0F00) >> 8] = y >> 1;
+                                v_reg[0xF] = y & 0x01;
+                            },
+                            7 => {
+                                const x: i16 = v_reg[(instruction & 0x0F00) >> 8];
+                                const y: i16 = v_reg[(instruction & 0x00F0) >> 4];
+                                const result: i16 = y - x;
+                                v_reg[(instruction & 0x0F00) >> 8] = @intCast(result & 0xFF);
+                                v_reg[0xF] = if (y >= x) 1 else 0;
+                            },
+                            0xE => {
+                                const y: u8 = v_reg[(instruction & 0x00F0) >> 4];
+                                v_reg[(instruction & 0x0F00) >> 8] = y << 1;
+                                v_reg[0xF] = (y >> 7) & 0x1;
+                            },
+                            else => {},
+                        }
+                    },
+                    9 => {
+                        if (v_reg[(instruction & 0x0F00) >> 8] != v_reg[(instruction & 0x00F0) >> 4]) {
+                            pc += 2;
+                        }
+                    },
+                    0xA => {
+                        i_reg = instruction & 0x0FFF;
+                    },
+                    0xC => {
+                        const x = (instruction & 0x0F00) >> 8;
+                        const val = rnd.random().int(u8);
+                        const mask: u8 = @intCast(instruction & 0xFF);
+                        v_reg[x] = val & mask;
+                    },
+                    0xD => { // DXYN
+                        v_reg[15] = 0;
+                        const x = v_reg[(instruction & 0x0F00) >> 8] % 64;
+                        const y = v_reg[(instruction & 0x00F0) >> 4] % 32;
+                        const n = instruction & 0x000F;
+
+                        for (0..n) |i| {
+                            const n_row: u64 = std.math.shl(u64, memory[i_reg + i], 56);
+                            v_reg[0xF] = if (screen[y + i] & std.math.shl(u64, 0xFF, x) != 0) 1 else 0;
+                            const mask: u64 = std.math.shr(u64, n_row, x);
+                            screen[y + i] ^= mask;
+                        }
                         refresh = true;
-                    } else if (instruction == 0x00EE) {
-                        pc = stack.pop();
-                    }
-                },
-                1 => {
-                    pc = instruction & 0x0FFF;
-                },
-                2 => {
-                    try stack.append(pc);
-                    pc = instruction & 0x0FFF;
-                },
-                3 => {
-                    if (v_reg[(instruction & 0x0F00) >> 8] == (instruction & 0x00FF)) {
-                        pc += 2;
-                    }
-                },
-                4 => {
-                    if (v_reg[(instruction & 0x0F00) >> 8] != (instruction & 0x00FF)) {
-                        pc += 2;
-                    }
-                },
-                5 => {
-                    if (v_reg[(instruction & 0x0F00) >> 8] == v_reg[(instruction & 0x00F0) >> 4]) {
-                        pc += 2;
-                    }
-                },
-                6 => {
-                    v_reg[(instruction & 0x0F00) >> 8] = @intCast(instruction & 0x00FF);
-                },
-                7 => {
-                    const result = v_reg[(instruction & 0x0F00) >> 8] + instruction & 0x00FF;
-                    v_reg[(instruction & 0x0F00) >> 8] = @intCast(result & 0xFF);
-                },
-                8 => {
-                    const op = instruction & 0x000F;
-                    switch (op) {
-                        0 => {
-                            v_reg[(instruction & 0x0F00) >> 8] = v_reg[(instruction & 0x00F0) >> 4];
-                        },
-                        1 => {
-                            v_reg[(instruction & 0x0F00) >> 8] |= v_reg[(instruction & 0x00F0) >> 4];
-                        },
-                        2 => {
-                            v_reg[(instruction & 0x0F00) >> 8] &= v_reg[(instruction & 0x00F0) >> 4];
-                        },
-                        3 => {
-                            v_reg[(instruction & 0x0F00) >> 8] ^= v_reg[(instruction & 0x00F0) >> 4];
-                        },
-                        4 => {
-                            const result: u16 = @as(u16, v_reg[(instruction & 0x0F00) >> 8]) + @as(u16, v_reg[(instruction & 0x00F0) >> 4]);
-                            v_reg[(instruction & 0x0F00) >> 8] = @intCast(result & 0xFF);
-                            v_reg[0xF] = if (result > 0xFF) 1 else 0;
-                        },
-                        5 => {
-                            const x: i16 = v_reg[(instruction & 0x0F00) >> 8];
-                            const y: i16 = v_reg[(instruction & 0x00F0) >> 4];
-                            const result: i16 = x - y;
-                            v_reg[(instruction & 0x0F00) >> 8] = @intCast(result & 0xFF);
-                            v_reg[0xF] = if (x >= y) 1 else 0;
-                        },
-                        6 => {
-                            const y: u8 = v_reg[(instruction & 0x00F0) >> 4];
-                            v_reg[(instruction & 0x0F00) >> 8] = y >> 1;
-                            v_reg[0xF] = y & 0x01;
-                        },
-                        7 => {
-                            const x: i16 = v_reg[(instruction & 0x0F00) >> 8];
-                            const y: i16 = v_reg[(instruction & 0x00F0) >> 4];
-                            const result: i16 = y - x;
-                            v_reg[(instruction & 0x0F00) >> 8] = @intCast(result & 0xFF);
-                            v_reg[0xF] = if (y >= x) 1 else 0;
-                        },
-                        0xE => {
-                            const y: u8 = v_reg[(instruction & 0x00F0) >> 4];
-                            v_reg[(instruction & 0x0F00) >> 8] = y << 1;
-                            v_reg[0xF] = (y >> 7) & 0x1;
-                        },
-                        else => {},
-                    }
-                },
-                9 => {
-                    if (v_reg[(instruction & 0x0F00) >> 8] != v_reg[(instruction & 0x00F0) >> 4]) {
-                        pc += 2;
-                    }
-                },
-                0xA => {
-                    i_reg = instruction & 0x0FFF;
-                },
-                0xC => {
-                    const x = (instruction & 0x0F00) >> 8;
-                    const val = rnd.random().int(u8);
-                    const mask: u8 = @intCast(instruction & 0xFF);
-                    v_reg[x] = val & mask;
-                },
-                0xD => { // DXYN
-                    v_reg[15] = 0;
-                    const x = v_reg[(instruction & 0x0F00) >> 8] % 64;
-                    const y = v_reg[(instruction & 0x00F0) >> 4] % 32;
-                    const n = instruction & 0x000F;
-
-                    for (0..n) |i| {
-                        const n_row: u64 = std.math.shl(u64, memory[i_reg + i], 56);
-                        v_reg[0xF] = if (screen[y + i] & std.math.shl(u64, 0xFF, x) != 0) 1 else 0;
-                        const mask: u64 = std.math.shr(u64, n_row, x);
-                        screen[y + i] ^= mask;
-                    }
-                    refresh = true;
-                },
-                0xE => {
-                    const op = instruction & 0x00FF;
-                    const x: u16 = (instruction & 0x0F00) >> 8;
-                    switch (op) {
-                        0x9e => {
-                            const key = ConvertKey(v_reg[x]);
-                            if (key != -1 and ray.IsKeyDown(key)) {
-                                pc += 2;
-                            }
-                        },
-                        0xA1 => {
-                            const key = ConvertKey(v_reg[x]);
-                            if (key != -1 and !ray.IsKeyDown(key)) {
-                                pc += 2;
-                            }
-                        },
-                        else => {},
-                    }
-                },
-                0xF => {
-                    const op = instruction & 0x00FF;
-                    const x: u16 = (instruction & 0x0F00) >> 8;
-                    switch (op) {
-                        0x07 => {
-                            v_reg[x] = delay_timer;
-                        },
-                        0x0A => {
-                            wait_for_keypress = true;
-                            keypress_reg = x;
-                        },
-                        0x15 => {
-                            delay_timer = v_reg[x];
-                        },
-                        0x18 => {
-                            sound_timer = v_reg[x];
-                        },
-                        0x1E => {
-                            i_reg += v_reg[x];
-                        },
-                        0x55 => {
-                            for (0..x + 1) |i| {
-                                memory[i_reg + i] = v_reg[i];
-                            }
-                            i_reg += x + 1;
-                        },
-                        0x65 => {
-                            for (0..x + 1) |i| {
-                                v_reg[i] = memory[i_reg + i];
-                            }
-                            i_reg += x + 1;
-                        },
-                        0x33 => {
-                            var val = v_reg[x];
-                            memory[i_reg + 2] = val % 10;
-                            val /= 10;
-                            memory[i_reg + 1] = val % 10;
-                            val /= 10;
-                            memory[i_reg] = val % 10;
-                            val /= 10;
-                        },
-                        else => {},
-                    }
-                },
-                else => {},
+                    },
+                    0xE => {
+                        const op = instruction & 0x00FF;
+                        const x: u16 = (instruction & 0x0F00) >> 8;
+                        switch (op) {
+                            0x9e => {
+                                const key = ConvertKey(v_reg[x]);
+                                if (key != -1 and ray.IsKeyDown(key)) {
+                                    pc += 2;
+                                }
+                            },
+                            0xA1 => {
+                                const key = ConvertKey(v_reg[x]);
+                                if (key != -1 and !ray.IsKeyDown(key)) {
+                                    pc += 2;
+                                }
+                            },
+                            else => {},
+                        }
+                    },
+                    0xF => {
+                        const op = instruction & 0x00FF;
+                        const x: u16 = (instruction & 0x0F00) >> 8;
+                        switch (op) {
+                            0x07 => {
+                                v_reg[x] = delay_timer;
+                            },
+                            0x0A => {
+                                wait_for_keypress = true;
+                                keypress_reg = x;
+                            },
+                            0x15 => {
+                                delay_timer = v_reg[x];
+                            },
+                            0x18 => {
+                                sound_timer = v_reg[x];
+                            },
+                            0x1E => {
+                                i_reg += v_reg[x];
+                            },
+                            0x55 => {
+                                for (0..x + 1) |i| {
+                                    memory[i_reg + i] = v_reg[i];
+                                }
+                                i_reg += x + 1;
+                            },
+                            0x65 => {
+                                for (0..x + 1) |i| {
+                                    v_reg[i] = memory[i_reg + i];
+                                }
+                                i_reg += x + 1;
+                            },
+                            0x33 => {
+                                var val = v_reg[x];
+                                memory[i_reg + 2] = val % 10;
+                                val /= 10;
+                                memory[i_reg + 1] = val % 10;
+                                val /= 10;
+                                memory[i_reg] = val % 10;
+                                val /= 10;
+                            },
+                            else => {},
+                        }
+                    },
+                    else => {},
+                }
             }
         }
 
