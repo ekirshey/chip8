@@ -90,7 +90,7 @@ pub fn main() !void {
     var v_reg = [_]u8{0} ** 16;
     var i_reg: u16 = 0;
     const file = try std.fs.cwd().openFile(
-        "E:/code/zig/chip8/roms/flightrunner.ch8",
+        "E:/code/zig/chip8/roms/corax.ch8",
         .{},
     );
     defer file.close();
@@ -327,12 +327,10 @@ pub fn main() !void {
                             },
                             0x33 => {
                                 var val = v_reg[x];
-                                memory[i_reg + 2] = val % 10;
-                                val /= 10;
-                                memory[i_reg + 1] = val % 10;
-                                val /= 10;
-                                memory[i_reg] = val % 10;
-                                val /= 10;
+                                for (1..4) |i| {
+                                    memory[i_reg + (3 - i)] = val % 10;
+                                    val /= 10;
+                                }
                             },
                             else => {},
                         }
