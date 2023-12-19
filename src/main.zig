@@ -65,6 +65,10 @@ pub fn ConvertKey(key: u8) c_int {
     }
 }
 
+const Screen = struct {
+    pixels: [64 * 32]u8,
+};
+
 const Chip8 = struct {
     screen: [64 * 32]u8,
     pc: u16,
@@ -76,7 +80,7 @@ pub fn main() !void {
     const gpa = general_purpose_allocator.allocator();
 
     var memory = [_]u8{0} ** 4096;
-    var screen = [_]u64{0} ** 32;
+    var screen = [_]u8{0} ** (32 * 64);
     var stack = std.ArrayList(u16).init(gpa);
     defer stack.deinit();
 
@@ -86,7 +90,7 @@ pub fn main() !void {
     var v_reg = [_]u8{0} ** 16;
     var i_reg: u16 = 0;
     const file = try std.fs.cwd().openFile(
-        "E:/code/zig/chip8/roms/octojam1title.ch8",
+        "E:/code/zig/chip8/roms/flightrunner.ch8",
         .{},
     );
     defer file.close();
@@ -192,12 +196,15 @@ pub fn main() !void {
                             },
                             1 => {
                                 v_reg[(instruction & 0x0F00) >> 8] |= v_reg[(instruction & 0x00F0) >> 4];
+                                v_reg[0xF] = 0;
                             },
                             2 => {
                                 v_reg[(instruction & 0x0F00) >> 8] &= v_reg[(instruction & 0x00F0) >> 4];
+                                v_reg[0xF] = 0;
                             },
                             3 => {
                                 v_reg[(instruction & 0x0F00) >> 8] ^= v_reg[(instruction & 0x00F0) >> 4];
+                                v_reg[0xF] = 0;
                             },
                             4 => {
                                 const result: u16 = @as(u16, v_reg[(instruction & 0x0F00) >> 8]) + @as(u16, v_reg[(instruction & 0x00F0) >> 4]);
@@ -239,6 +246,9 @@ pub fn main() !void {
                     0xA => {
                         i_reg = instruction & 0x0FFF;
                     },
+                    0xB => {
+                        pc = v_reg[0] + (instruction & 0x0FFF);
+                    },
                     0xC => {
                         const x = (instruction & 0x0F00) >> 8;
                         const val = rnd.random().int(u8);
@@ -246,16 +256,21 @@ pub fn main() !void {
                         v_reg[x] = val & mask;
                     },
                     0xD => { // DXYN
-                        v_reg[15] = 0;
-                        const x = v_reg[(instruction & 0x0F00) >> 8] % 64;
-                        const y = v_reg[(instruction & 0x00F0) >> 4] % 32;
+                        const x: u8 = v_reg[(instruction & 0x0F00) >> 8];
+                        const y: u8 = v_reg[(instruction & 0x00F0) >> 4];
                         const n = instruction & 0x000F;
 
+                        v_reg[0xF] = 0;
                         for (0..n) |i| {
-                            const n_row: u64 = std.math.shl(u64, memory[i_reg + i], 56);
-                            v_reg[0xF] = if (screen[y + i] & std.math.shl(u64, 0xFF, x) != 0) 1 else 0;
-                            const mask: u64 = std.math.shr(u64, n_row, x);
-                            screen[y + i] ^= mask;
+                            const row = (y + i) % 32;
+                            for (0..8) |j| {
+                                const col = (x + j) % 64;
+                                const new_cell = std.math.shr(u8, memory[i_reg + i], 7 - j) & 0x01;
+                                if (screen[row * 64 + col] & new_cell == 1) {
+                                    v_reg[0xF] = 1;
+                                }
+                                screen[row * 64 + col] ^= new_cell;
+                            }
                         }
                         refresh = true;
                     },
@@ -337,8 +352,8 @@ pub fn main() !void {
         };
         for (0..32) |i| {
             for (0..64) |j| {
-                if (screen[i] & std.math.shl(u64, 1, j) > 0) {
-                    rect.x = @floatFromInt((64 - j) * tile_width);
+                if (screen[i * 64 + j] > 0) {
+                    rect.x = @floatFromInt(j * tile_width);
                     rect.y = @floatFromInt(i * tile_height);
                     ray.DrawRectangleRec(rect, ray.WHITE);
                 }
@@ -346,17 +361,6 @@ pub fn main() !void {
         }
         ray.EndDrawing();
     }
-}
-
-fn draw(screen: []u64) void {
-    for (0..32) |i| {
-        std.debug.print("{b:0>64} ", .{screen[i]});
-        std.debug.print("\n", .{});
-    }
-}
-
-fn clearScreen() void {
-    std.debug.print("\x1b[2J\x1b[H", .{});
 }
 
 test "simple test" {
