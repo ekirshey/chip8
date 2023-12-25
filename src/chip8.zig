@@ -48,13 +48,6 @@ const Instruction = struct {
     }
 };
 
-const Opcode = enum {
-    CLS,
-    RST,
-    JUMP,
-    CALL,
-};
-
 pub const Emulator = struct {
     memory: [4096]u8,
     output: [64 * 32]u8,

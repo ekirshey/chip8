@@ -49,13 +49,17 @@ const Screen = struct {
 };
 
 pub fn main() !void {
+    const period: f32 = 1.0 / 60.0; // 60hz
+    const instruction_rate: f32 = 1.0 / 700.0;
+    const tile_height: u32 = screen_height / 32;
+    const tile_width: u32 = screen_width / 64;
+    var timer: f32 = 0.0;
+    var instruction_timer: f32 = 0.0;
+
     const stderr = std.io.getStdErr().writer();
 
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = general_purpose_allocator.allocator();
-
-    const period: f32 = 1.0 / 60.0; // 60hz
-    const instruction_rate: f32 = 1.0 / 700.0;
 
     const args = try std.process.argsAlloc(gpa);
     defer std.process.argsFree(gpa, args);
@@ -72,12 +76,6 @@ pub fn main() !void {
 
     ray.InitWindow(screen_width + 32, screen_height + 32, "Chip8");
     defer ray.CloseWindow();
-
-    const tile_height: u32 = screen_height / 32;
-    const tile_width: u32 = screen_width / 64;
-
-    var timer: f32 = 0.0;
-    var instruction_timer: f32 = 0.0;
 
     while (!ray.WindowShouldClose()) {
         timer += ray.GetFrameTime();
