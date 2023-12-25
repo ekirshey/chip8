@@ -49,31 +49,40 @@ const Screen = struct {
 };
 
 pub fn main() !void {
+    const stderr = std.io.getStdErr().writer();
+
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = general_purpose_allocator.allocator();
 
-    var emu = chip8.Emulator.init(gpa);
+    const period: f32 = 1.0 / 60.0; // 60hz
+    const instruction_rate: f32 = 1.0 / 700.0;
+
+    const args = try std.process.argsAlloc(gpa);
+    defer std.process.argsFree(gpa, args);
+
+    if (args.len < 2) {
+        try stderr.print("\nNo ROM provided\n", .{});
+        return;
+    }
+
+    var emu = chip8.Emulator.init(gpa, period);
     defer emu.deinit();
 
-    try emu.loadRom("E:/code/zig/chip8/roms/flags.ch8");
+    try emu.loadRom(args[1]);
 
     ray.InitWindow(screen_width + 32, screen_height + 32, "Chip8");
     defer ray.CloseWindow();
 
-    const tile_height = screen_height / 32;
-    const tile_width = screen_width / 64;
+    const tile_height: u32 = screen_height / 32;
+    const tile_width: u32 = screen_width / 64;
 
     var timer: f32 = 0.0;
     var instruction_timer: f32 = 0.0;
-    const period: f32 = 1.0 / 60.0; // 60hz
-    const instruction_rate: f32 = 1.0 / 700.0;
+
     while (!ray.WindowShouldClose()) {
         timer += ray.GetFrameTime();
         instruction_timer += ray.GetFrameTime();
-        if (timer >= period) {
-            emu.updateTimers();
-            timer = 0;
-        }
+        emu.updateTimers(ray.GetFrameTime());
 
         if (instruction_timer >= instruction_rate) {
             instruction_timer = 0.0;
@@ -87,22 +96,26 @@ pub fn main() !void {
 
         ray.BeginDrawing();
         ray.ClearBackground(ray.BLACK);
-        var rect = ray.Rectangle{
-            .x = 0,
-            .y = 0,
-            .height = tile_height,
-            .width = tile_width,
-        };
-        for (0..32) |i| {
-            for (0..64) |j| {
-                if (emu.output[i * 64 + j] > 0) {
-                    rect.x = @floatFromInt(j * tile_width);
-                    rect.y = @floatFromInt(i * tile_height);
-                    ray.DrawRectangleRec(rect, ray.WHITE);
-                }
+        draw(&emu, tile_height, tile_width);
+        ray.EndDrawing();
+    }
+}
+
+pub fn draw(emu: *chip8.Emulator, tile_height: u32, tile_width: u32) void {
+    var rect = ray.Rectangle{
+        .x = 0,
+        .y = 0,
+        .height = @floatFromInt(tile_height),
+        .width = @floatFromInt(tile_width),
+    };
+    for (0..32) |i| {
+        for (0..64) |j| {
+            if (emu.output[i * 64 + j] > 0) {
+                rect.x = @floatFromInt(j * tile_width);
+                rect.y = @floatFromInt(i * tile_height);
+                ray.DrawRectangleRec(rect, ray.WHITE);
             }
         }
-        ray.EndDrawing();
     }
 }
 

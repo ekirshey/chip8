@@ -67,8 +67,10 @@ pub const Emulator = struct {
     rnd: RndGen,
     wait_for_keypress: bool,
     keypress_reg: u16,
+    timer: f32,
+    period: f32,
 
-    pub fn init(allocator: std.mem.Allocator) Emulator {
+    pub fn init(allocator: std.mem.Allocator, timer_period: f32) Emulator {
         return Emulator{
             .memory = [_]u8{0} ** 4096,
             .output = [_]u8{0} ** (32 * 64),
@@ -81,6 +83,8 @@ pub const Emulator = struct {
             .rnd = RndGen.init(0),
             .wait_for_keypress = false,
             .keypress_reg = 0,
+            .timer = 0.0,
+            .period = timer_period,
         };
     }
 
@@ -120,7 +124,12 @@ pub const Emulator = struct {
         _ = size;
     }
 
-    pub fn updateTimers(self: *Emulator) void {
+    pub fn updateTimers(self: *Emulator, delta_time: f32) void {
+        self.timer += delta_time;
+        if (self.timer < self.period) {
+            return;
+        }
+
         if (self.delay_timer > 0) {
             self.delay_timer -= 1;
         }
@@ -128,6 +137,7 @@ pub const Emulator = struct {
         if (self.sound_timer > 0) {
             self.sound_timer -= 1;
         }
+        self.timer = 0;
     }
 
     pub fn bitOperations(self: *Emulator, instruction: Instruction) void {
