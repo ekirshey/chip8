@@ -6,6 +6,8 @@ const Allocator = std.mem.Allocator;
 
 const screen_width: u32 = 1024;
 const screen_height: u32 = 512;
+const screen_rows: u32 = 32;
+const screen_cols: u32 = 64;
 
 pub fn GetInput() u8 {
     if (ray.IsKeyReleased(ray.KEY_ONE)) {
@@ -44,16 +46,11 @@ pub fn GetInput() u8 {
     return 0;
 }
 
-const Screen = struct {
-    pixels: [64 * 32]u8,
-};
-
 pub fn main() !void {
     const period: f32 = 1.0 / 60.0; // 60hz
     const instruction_rate: f32 = 1.0 / 700.0;
-    const tile_height: u32 = screen_height / 32;
-    const tile_width: u32 = screen_width / 64;
-    var timer: f32 = 0.0;
+    const tile_height: u32 = screen_height / screen_rows;
+    const tile_width: u32 = screen_width / screen_cols;
     var instruction_timer: f32 = 0.0;
 
     const stderr = std.io.getStdErr().writer();
@@ -74,13 +71,19 @@ pub fn main() !void {
 
     try emu.loadRom(args[1]);
 
-    ray.InitWindow(screen_width + 32, screen_height + 32, "Chip8");
+    var it = std.mem.split(u8, args[1], "/");
+    var window_name: []const u8 = "";
+    while (it.next()) |x| {
+        window_name = x;
+    }
+
+    ray.InitWindow(screen_width + tile_width / 2, screen_height + tile_height / 2, &window_name[0]);
     defer ray.CloseWindow();
 
     while (!ray.WindowShouldClose()) {
-        timer += ray.GetFrameTime();
-        instruction_timer += ray.GetFrameTime();
-        emu.updateTimers(ray.GetFrameTime());
+        const frame_time: f32 = ray.GetFrameTime();
+        instruction_timer += frame_time;
+        emu.updateTimers(frame_time);
 
         if (instruction_timer >= instruction_rate) {
             instruction_timer = 0.0;
@@ -94,21 +97,21 @@ pub fn main() !void {
 
         ray.BeginDrawing();
         ray.ClearBackground(ray.BLACK);
-        draw(&emu, tile_height, tile_width);
+        draw(&emu, screen_rows, screen_cols, tile_height, tile_width);
         ray.EndDrawing();
     }
 }
 
-pub fn draw(emu: *chip8.Emulator, tile_height: u32, tile_width: u32) void {
+pub fn draw(emu: *chip8.Emulator, rows: u32, cols: u32, tile_height: u32, tile_width: u32) void {
     var rect = ray.Rectangle{
         .x = 0,
         .y = 0,
         .height = @floatFromInt(tile_height),
         .width = @floatFromInt(tile_width),
     };
-    for (0..32) |i| {
-        for (0..64) |j| {
-            if (emu.output[i * 64 + j] > 0) {
+    for (0..rows) |i| {
+        for (0..cols) |j| {
+            if (emu.output[i * cols + j] > 0) {
                 rect.x = @floatFromInt(j * tile_width);
                 rect.y = @floatFromInt(i * tile_height);
                 ray.DrawRectangleRec(rect, ray.WHITE);
